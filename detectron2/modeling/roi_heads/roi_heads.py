@@ -629,7 +629,7 @@ class StandardROIHeads(ROIHeads):
         box_features = self.box_pooler(features, [x.proposal_boxes for x in proposals])
         # print(box_features.shape)
         box_features = self.box_head(box_features)
-
+        
         # box_features_numpy = box_features.detach().clone().cpu().numpy()
         # box_gt_class_numpy = proposals[0].gt_classes.cpu().numpy()
 
