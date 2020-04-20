@@ -71,7 +71,8 @@ def fast_rcnn_inference(boxes, scores, sigma, image_shapes, score_thresh, nms_th
     ## happen without any issue, we just create copy of boxes. 
     # import pdb; pdb.set_trace()
     if sigma == None:  ## None when deterministic object detection, so let's make sigma 0
-        sigma = deepcopy(boxes)
+        import ipdb; ipdb.set_trace()
+        sigma = tuple([v.detach().clone() for v in boxes])
         sigma[0][:,:] = 0.0
 
     result_per_image = [
