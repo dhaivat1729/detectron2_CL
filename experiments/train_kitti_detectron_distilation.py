@@ -97,28 +97,32 @@ for ind, class_name in enumerate(class_list_all):
     from detectron2.engine import DefaultTrainer_CL as DefaultTrainer
     from detectron2.config import get_cfg
 
-    cfg = get_cfg()    
+    cfg = get_cfg()
+    cfg_prev_classes = get_cfg()    
     cfg.merge_from_file("/network/home/bhattdha/detectron2_CL/configs/COCO-Detection/faster_rcnn_R_101_FPN_3x.yaml")
+
     cfg.DATASETS.TRAIN = ("kitti/train/"+class_name,)
     cfg.DATASETS.TEST = ()   # no metrics implemented for this dataset
     cfg.DATALOADER.NUM_WORKERS = 2
     if ind > 0:
         last_class = class_list_all[ind-1]
         cfg.CUSTOM_OPTIONS.SEEN_CLASSES = list(np.arange(ind))
-        # import ipdb; ipdb.set_trace()
+        cfg_prev_classes = torch.load(os.path.join(output_main_dir + last_class + '/' + last_class + '_cfg.final'))['cfg']
         model_path = os.path.join(output_main_dir, last_class, 'model_final_next.pth')
         if os.path.isfile(model_path):
             print("previous class model weights exist broo!")
             cfg.MODEL.WEIGHTS = model_path  # load weights of last trained class
+            cfg_prev_classes.MODEL.WEIGHTS = model_path
             # cfg.MODEL.WEIGHTS = "https://dl.fbaipublicfiles.com/detectron2/COCO-Detection/faster_rcnn_R_101_FPN_3x/137851257/model_final_f6e8b1.pkl"  # initialize fron deterministic model
         else:
             print("You messed up bruh!")
             import sys; sys.exit(0)
     else:
         cfg.MODEL.WEIGHTS = "https://dl.fbaipublicfiles.com/detectron2/COCO-Detection/faster_rcnn_R_101_FPN_3x/137851257/model_final_f6e8b1.pkl"  # initialize fron deterministic model
+        cfg_prev_classes = None
     cfg.SOLVER.IMS_PER_BATCH = 15
     cfg.SOLVER.BASE_LR = 7.5e-4  
-    cfg.SOLVER.MAX_ITER =  10001
+    cfg.SOLVER.MAX_ITER =  5001
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 256   # faster, and good enough for this toy dataset
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(class_list_all)  #  (kitti)
     cfg.OUTPUT_DIR = os.path.join(output_main_dir, class_name)
@@ -133,7 +137,7 @@ for ind, class_name in enumerate(class_list_all):
     ### At this point, we will save the config as it becomes vital for testing in future
     torch.save({'cfg': cfg}, cfg.OUTPUT_DIR + '/' + class_name + '_cfg.final')
 
-    trainer = DefaultTrainer(cfg) 
+    trainer = DefaultTrainer(cfg, cfg_prev_classes) 
     trainer.resume_or_load(resume=True)
     print("start training")
     print("The checkpoint iteration value is: ", cfg.SOLVER.CHECKPOINT_PERIOD)

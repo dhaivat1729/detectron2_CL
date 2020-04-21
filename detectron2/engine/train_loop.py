@@ -304,7 +304,7 @@ class SimpleTrainer_CL(TrainerBase):
     Author: Dhaivat Bhatt
     """
 
-    def __init__(self, model, data_loader, optimizer):
+    def __init__(self, model, data_loader, optimizer, model_old = None):
         """
         Args:
             model: a torch Module. Takes a data from data_loader and returns a
@@ -323,6 +323,13 @@ class SimpleTrainer_CL(TrainerBase):
         model.train()
 
         self.model = model
+
+        self.model_old = model_old
+
+        ## if old model exists, we subject it to eval mode.
+        if self.model_old is not None:
+            self.model_old.eval()
+
         self.data_loader = data_loader
         self._data_loader_iter = iter(data_loader)
         self.optimizer = optimizer
@@ -365,17 +372,23 @@ class SimpleTrainer_CL(TrainerBase):
                 data_dict['width'] = data_dict['image'].shape[2]
                 data_final.append(data_dict)
 
-            self.model.eval() ## because we are doing detection
-
-            ## predicting detections
-            predictions = self.model(data_final)
-
-            ## merging detections from seen classes with groundtruth of new classes
-            data = self.merge_gt_and_detections(data, predictions, seen_classes)
+            if self.model_old is None:
+                self.model.eval() ## because we are doing detection
+                ## predicting detections
+                predictions = self.model(data_final)
+                ## merging detections from seen classes with groundtruth of new classes
+                data = self.merge_gt_and_detections(data, predictions, seen_classes)
+                self.model.train()            
+            else:
+                # print("Getting detections from old model.")
+                self.model_old.eval()
+                predictions = self.model_old(data_final)
+                ## merging detections from seen classes with groundtruth of new classes
+                data = self.merge_gt_and_detections(data, predictions, seen_classes)
         
 
         ## let's begin boys
-        self.model.train()            
+        
         assert self.model.training, "[SimpleTrainer] model was changed to eval mode!"
         start = time.perf_counter()
 

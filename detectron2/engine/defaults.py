@@ -470,13 +470,23 @@ class DefaultTrainer_CL(SimpleTrainer_CL):
         cfg (CfgNode):
     """
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, cfg_old):
         """
         Args:
             cfg (CfgNode):
         """
         # Assume these objects must be constructed in this order.
         model = self.build_model(cfg)
+
+        if cfg_old is not None:
+            model_old = self.build_model(cfg)
+            ## loading the old model
+            checkpointer_old = DetectionCheckpointer(model_old)
+            checkpointer_old.load(cfg_old.MODEL.WEIGHTS)
+        else:
+            model_old = None
+
+
         optimizer = self.build_optimizer(cfg, model)
         data_loader = self.build_train_loader(cfg)
 
@@ -485,7 +495,7 @@ class DefaultTrainer_CL(SimpleTrainer_CL):
             model = DistributedDataParallel(
                 model, device_ids=[comm.get_local_rank()], broadcast_buffers=False
             )
-        super().__init__(model, data_loader, optimizer)
+        super().__init__(model, data_loader, optimizer, model_old)
 
         self.scheduler = self.build_lr_scheduler(cfg, optimizer)
         # Assume no other objects need to be checkpointed.
@@ -497,9 +507,12 @@ class DefaultTrainer_CL(SimpleTrainer_CL):
             optimizer=optimizer,
             scheduler=self.scheduler,
         )
+
+
         self.start_iter = 0
         self.max_iter = cfg.SOLVER.MAX_ITER
         self.cfg = cfg
+        self.cfg_old = cfg_old
 
         self.register_hooks(self.build_hooks())
 
