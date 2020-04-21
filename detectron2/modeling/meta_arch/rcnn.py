@@ -113,7 +113,6 @@ class GeneralizedRCNN(nn.Module):
             same as in :meth:`forward`.
         """
         assert not self.training
-
         images = self.preprocess_image(batched_inputs)
         features = self.backbone(images.tensor)
         
@@ -124,13 +123,11 @@ class GeneralizedRCNN(nn.Module):
             else:
                 assert "proposals" in batched_inputs[0]
                 proposals = [x["proposals"].to(self.device) for x in batched_inputs]
-            
             results, _ = self.roi_heads(images, features, proposals, None)
             
             
         else:
             detected_instances = [x.to(self.device) for x in detected_instances]
-            # import pdb; pdb.set_trace()
             results = self.roi_heads.forward_with_given_boxes(features, detected_instances)
 
 
@@ -143,7 +140,7 @@ class GeneralizedRCNN(nn.Module):
                 width = input_per_image.get("width", image_size[1])
                 r = detector_postprocess(results_per_image, height, width)
                 processed_results.append({"instances": r})
-            # import pdb; pdb.set_trace()
+            
             return processed_results
         else:
             return results

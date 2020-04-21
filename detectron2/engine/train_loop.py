@@ -8,9 +8,12 @@ import weakref
 import torch
 
 import detectron2.utils.comm as comm
+from detectron2.structures import Boxes, Instances
+from detectron2.layers import cat
 from detectron2.utils.events import EventStorage
+import copy
 
-__all__ = ["HookBase", "TrainerBase", "SimpleTrainer"]
+__all__ = ["HookBase", "TrainerBase", "SimpleTrainer", "SimpleTrainer_CL"]
 
 
 class HookBase:
@@ -113,7 +116,7 @@ class TrainerBase:
             h.trainer = weakref.proxy(self)
         self._hooks.extend(hooks)
 
-    def train(self, start_iter: int, max_iter: int):
+    def train(self, start_iter: int, max_iter: int, cfg = None):
         """
         Args:
             start_iter, max_iter (int): See docs above
@@ -125,12 +128,13 @@ class TrainerBase:
         self.max_iter = max_iter
 
         with EventStorage(start_iter) as self.storage:
+
             try:
                 self.before_train()
                 for self.iter in range(start_iter, max_iter):
                     print(self.iter)
                     self.before_step()
-                    self.run_step()
+                    self.run_step(cfg)
                     self.after_step()
             finally:
                 self.after_train()
@@ -195,22 +199,23 @@ class SimpleTrainer(TrainerBase):
         self._data_loader_iter = iter(data_loader)
         self.optimizer = optimizer
 
-    def run_step(self):
+    def run_step(self, cfg):
         """
         Implement the standard training logic described above.
         """
+        assert cfg is None
         assert self.model.training, "[SimpleTrainer] model was changed to eval mode!"
         start = time.perf_counter()
         """
         If your want to do something with the data, you can wrap the dataloader.
         """
         data = next(self._data_loader_iter)
+        import ipdb; ipdb.set_trace()
         data_time = time.perf_counter() - start
 
         """
         If your want to do something with the losses, you can wrap the model.
         """
-        
         loss_dict = self.model(data)
         print(loss_dict)
         losses = sum(loss for loss in loss_dict.values())
@@ -233,7 +238,7 @@ class SimpleTrainer(TrainerBase):
         if losses.item() < 50:
             # print("Doing nothing LMAO")
             losses.backward()
-            # self.optimizer.step()
+            self.optimizer.step()
         else:
             print("THE LOSSS RIGHT NOW ISSSS: ", losses.item())
             # losses.backward()
@@ -248,6 +253,240 @@ class SimpleTrainer(TrainerBase):
         wrap the optimizer with your custom `step()` method.
         """
         
+
+    def _detect_anomaly(self, losses, loss_dict):
+        if not torch.isfinite(losses).all():
+            raise FloatingPointError(
+                "Loss became infinite or NaN at iteration={}!\nloss_dict = {}".format(
+                    self.iter, loss_dict
+                )
+            )
+
+    def _write_metrics(self, metrics_dict: dict):
+        """
+        Args:
+            metrics_dict (dict): dict of scalar metrics
+        """
+        metrics_dict = {
+            k: v.detach().cpu().item() if isinstance(v, torch.Tensor) else float(v)
+            for k, v in metrics_dict.items()
+        }
+        # gather metrics among all workers for logging
+        # This assumes we do DDP-style training, which is currently the only
+        # supported method in detectron2.
+        all_metrics_dict = comm.gather(metrics_dict)
+
+        if comm.is_main_process():
+            if "data_time" in all_metrics_dict[0]:
+                # data_time among workers can have high variance. The actual latency
+                # caused by data_time is the maximum among workers.
+                data_time = np.max([x.pop("data_time") for x in all_metrics_dict])
+                self.storage.put_scalar("data_time", data_time)
+
+            # average the rest metrics
+            metrics_dict = {
+                k: np.mean([x[k] for x in all_metrics_dict]) for k in all_metrics_dict[0].keys()
+            }
+            total_losses_reduced = sum(loss for loss in metrics_dict.values())
+
+            self.storage.put_scalar("total_loss", total_losses_reduced)
+            if len(metrics_dict) > 1:
+                self.storage.put_scalars(**metrics_dict)
+
+class SimpleTrainer_CL(TrainerBase):
+    """
+    For distilation loss based learning, 
+    in forward pass, we first detect previously seen objects.
+    We then append it to the groundtruth, 
+    then we run the training. 
+    This way, we retain old information.
+
+    Author: Dhaivat Bhatt
+    """
+
+    def __init__(self, model, data_loader, optimizer):
+        """
+        Args:
+            model: a torch Module. Takes a data from data_loader and returns a
+                dict of losses.
+            data_loader: an iterable. Contains data to be used to call model.
+            optimizer: a torch optimizer.
+        """
+        super().__init__()
+
+        """
+        We set the model to training mode in the trainer.
+        However it's valid to train a model that's in eval mode.
+        If you want your model (or a submodule of it) to behave
+        like evaluation during training, you can overwrite its train() method.
+        """
+        model.train()
+
+        self.model = model
+        self.data_loader = data_loader
+        self._data_loader_iter = iter(data_loader)
+        self.optimizer = optimizer
+
+    def run_step(self, cfg):
+        """
+        Implement continual learning object detection logic
+
+        Steps:
+
+        1. get the data first
+        2. Do the forward pass to detect already seen object classes
+        3. Append them as groundtruth to already seen classes
+        4. Train the model on currently seen data + old seen classes detected!
+
+        Potential new thing: Add noise to the detected objects.  
+
+        """
+        ###
+
+        assert cfg is not None
+        
+        seen_classes = cfg.CUSTOM_OPTIONS.SEEN_CLASSES
+
+        ## 1. get the data first ##
+        data = next(self._data_loader_iter)
+
+        if seen_classes:
+            
+            ## 2. Do the forward pass to detect already seen object classes ##
+            ## preparing the data for forward pass
+            data_dummy = copy.deepcopy(data)
+                
+            data_final = []
+            for data_instance in data_dummy:
+                ## doing this so that we get final detections for this shape
+                data_dict = {}
+                data_dict['image'] = data_instance['image']
+                data_dict['height'] = data_dict['image'].shape[1]
+                data_dict['width'] = data_dict['image'].shape[2]
+                data_final.append(data_dict)
+
+            self.model.eval() ## because we are doing detection
+
+            ## predicting detections
+            predictions = self.model(data_final)
+
+            ## merging detections from seen classes with groundtruth of new classes
+            data = self.merge_gt_and_detections(data, predictions, seen_classes)
+        
+
+        ## let's begin boys
+        self.model.train()            
+        assert self.model.training, "[SimpleTrainer] model was changed to eval mode!"
+        start = time.perf_counter()
+
+        """
+        If your want to do something with the data, you can wrap the dataloader.
+        """
+        
+        data_time = time.perf_counter() - start
+
+        """
+        If your want to do something with the losses, you can wrap the model.
+        """
+
+
+        loss_dict = self.model(data)
+        print(loss_dict)
+
+        losses = sum(loss for loss in loss_dict.values())
+        self._detect_anomaly(losses, loss_dict)
+
+        metrics_dict = loss_dict
+        metrics_dict["data_time"] = data_time
+        self._write_metrics(metrics_dict)
+
+        """
+        If you need accumulate gradients or something similar, you can
+        wrap the optimizer with your custom `zero_grad()` method.
+        """
+        self.optimizer.zero_grad()
+        
+        # To avoid bad gradients, this is a temporary "hack" and probably very bad thing to do too, come back again to fix!!
+        if losses.item() < 50:
+            # print("Doing nothing LMAO")
+            losses.backward()
+            self.optimizer.step()
+        else:
+            print("THE LOSSS RIGHT NOW ISSSS: ", losses.item())
+            # losses.backward()
+        
+        ## getting rid of the bad way of doing things! Gradient clipping now. 
+        # clip_value = 10.0
+        # torch.nn.utils.clip_grad_value_(self.optimizer.param_groups[0]['params'], clip_value = clip_value)
+        # self.optimizer.step()
+
+        """
+        If you need gradient clipping/scaling or other processing, you can
+        wrap the optimizer with your custom `step()` method.
+        """
+        
+    def merge_gt_and_detections(self, gt, predictions, seen_classes):
+        """
+        For continual learning setup, it detects all previously seen objects
+        and merges them with ground truth.
+        TO DO:  
+        """
+
+        assert len(gt) == len(predictions)
+
+        ## getting groundtruth instances
+        gt_instances = [d['instances'] for d in gt]
+
+        ## detected instances
+        detected_instances = [p['instances'].to('cpu') for p in predictions]
+
+        ## let's go through every image once by one
+        for i, detectedinstance in enumerate(detected_instances):
+
+            ## here we append all the ground truth and detected instances for this image
+            instance_list = []
+
+            ## let's start with ground truth instance
+            instance_list.append(gt_instances[i])
+            
+            ## append only those detected instances which are from previously seen classes
+            for j in range(len(detectedinstance)):
+
+                ## only append if detected instance is from a seen class and it's a confident detection
+                if detectedinstance[[j]].get('pred_classes').item() in seen_classes and detectedinstance[[j]].get('scores').item() > 0.9:
+                
+                    ## let's create an instance object for this detection
+                    ret = Instances(detectedinstance[[j]].image_size)
+                    ret.set('gt_boxes', Boxes(detectedinstance[[j]].get('pred_boxes').tensor.clone().detach())) ## because boxes are expected in the ground truth and not just a tensor
+                    ret.set('gt_classes', detectedinstance[[j]].get('pred_classes').clone().detach())
+                    instance_list.append(ret)
+
+            ## for this image size
+            image_size = detectedinstance.image_size
+
+            ## let's initialize the instance
+            ret = Instances(image_size)
+
+
+            ## let's go through keys and start merging
+            for k in instance_list[0]._fields.keys():
+
+                values = [i.get(k) for i in instance_list]
+
+                v0 = values[0]
+                
+                if isinstance(v0, torch.Tensor):
+                    values = cat(values, dim=0)
+                elif isinstance(v0, list):
+                    values = list(itertools.chain(*values))
+                elif hasattr(type(v0), "cat"):
+                    values = type(v0).cat(values)
+                else:
+                    raise ValueError("Unsupported type {} for concatenation".format(type(v0)))
+                ret.set(k, values)
+            gt[i]['instances'] = ret          
+            
+        return gt
 
     def _detect_anomaly(self, losses, loss_dict):
         if not torch.isfinite(losses).all():

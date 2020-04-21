@@ -26,7 +26,7 @@ class_list_all = ['Car', 'Van', 'Truck', 'Tram']
 def get_kitti_dicts(root_dir, data_label, class_dict):
     
     image_names = sorted(glob.glob(root_dir+"/images/training/*.png"))
-    train_images = int(len(image_names)*0.999)
+    train_images = int(len(image_names)*0.75)
     test_images = len(image_names) - train_images
     if data_label == 'train':
         image_names = image_names[:train_images]
@@ -62,7 +62,6 @@ def get_kitti_dicts(root_dir, data_label, class_dict):
             for obj in objects:
                 obj = obj.split()
                 if obj[0] in class_name:
-                    print(obj[0])     
                     obj_ann = {
                         "bbox": [float(i) for i in obj[4:8]],
                         "bbox_mode": BoxMode.XYXY_ABS,                    
@@ -82,6 +81,8 @@ def get_kitti_dicts(root_dir, data_label, class_dict):
 output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/fine_tuning/"
 
 for ind, class_name in enumerate(class_list_all):
+    if os.path.isfile(os.path.join(output_main_dir, class_name, 'model_final.pth')):
+        continue
     print(ind, class_name)
     from detectron2.data import DatasetCatalog, MetadataCatalog
 
@@ -114,9 +115,9 @@ for ind, class_name in enumerate(class_list_all):
             import sys; sys.exit(0)
     else:
         cfg.MODEL.WEIGHTS = "https://dl.fbaipublicfiles.com/detectron2/COCO-Detection/faster_rcnn_R_101_FPN_3x/137851257/model_final_f6e8b1.pkl"  # initialize fron deterministic model
-    cfg.SOLVER.IMS_PER_BATCH = 4
-    cfg.SOLVER.BASE_LR = 2e-4  
-    cfg.SOLVER.MAX_ITER =  25000
+    cfg.SOLVER.IMS_PER_BATCH = 20
+    cfg.SOLVER.BASE_LR = 1e-3  
+    cfg.SOLVER.MAX_ITER =  5001
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 256   # faster, and good enough for this toy dataset
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(class_list_all)  #  (kitti)
     cfg.OUTPUT_DIR = os.path.join(output_main_dir, class_name)
