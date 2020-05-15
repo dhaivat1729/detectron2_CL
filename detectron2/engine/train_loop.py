@@ -210,7 +210,6 @@ class SimpleTrainer(TrainerBase):
         If your want to do something with the data, you can wrap the dataloader.
         """
         data = next(self._data_loader_iter)
-        import ipdb; ipdb.set_trace()
         data_time = time.perf_counter() - start
 
         """
@@ -381,7 +380,6 @@ class SimpleTrainer_CL(TrainerBase):
                 self.model.train()            
             else:
                 # print("Getting detections from old model.")
-                self.model_old.eval()
                 predictions = self.model_old(data_final)
                 ## merging detections from seen classes with groundtruth of new classes
                 data = self.merge_gt_and_detections(data, predictions, seen_classes)

@@ -78,7 +78,7 @@ def get_kitti_dicts(root_dir, data_label, class_dict):
     return dataset_dicts
 
 
-output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/distillation_loss/"
+output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/distillation_loss_more_training_iterations/"
 
 for ind, class_name in enumerate(class_list_all):
     if os.path.isfile(os.path.join(output_main_dir, class_name, 'model_final.pth')):
@@ -122,7 +122,7 @@ for ind, class_name in enumerate(class_list_all):
         cfg_prev_classes = None
     cfg.SOLVER.IMS_PER_BATCH = 15
     cfg.SOLVER.BASE_LR = 7.5e-4  
-    cfg.SOLVER.MAX_ITER =  5001
+    cfg.SOLVER.MAX_ITER =  20001
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 256   # faster, and good enough for this toy dataset
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(class_list_all)  #  (kitti)
     cfg.OUTPUT_DIR = os.path.join(output_main_dir, class_name)
