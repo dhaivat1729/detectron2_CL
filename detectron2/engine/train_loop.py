@@ -310,6 +310,7 @@ class SimpleTrainer_CL(TrainerBase):
                 dict of losses.
             data_loader: an iterable. Contains data to be used to call model.
             optimizer: a torch optimizer.
+            model_old: Model trained for all previous tasks
         """
         super().__init__()
 
@@ -341,7 +342,11 @@ class SimpleTrainer_CL(TrainerBase):
 
         1. get the data first
         2. Do the forward pass to detect already seen object classes
-        3. Append them as groundtruth to already seen classes
+        3. 
+            i. If it's a deterministic object detector, append them as groundtruth to already seen classes
+            ii. If it's a probabilistic object detector, sample from detections and append a few of them.
+    
+
         4. Train the model on currently seen data + old seen classes detected!
 
         Potential new thing: Add noise to the detected objects.  
@@ -352,6 +357,7 @@ class SimpleTrainer_CL(TrainerBase):
         assert cfg is not None
         
         seen_classes = cfg.CUSTOM_OPTIONS.SEEN_CLASSES
+        classifier_type = cfg.CUSTOM_OPTIONS.DETECTOR_TYPE
 
         ## 1. get the data first ##
         data = next(self._data_loader_iter)
@@ -376,13 +382,13 @@ class SimpleTrainer_CL(TrainerBase):
                 ## predicting detections
                 predictions = self.model(data_final)
                 ## merging detections from seen classes with groundtruth of new classes
-                data = self.merge_gt_and_detections(data, predictions, seen_classes)
+                data = self.merge_gt_and_detections(data, predictions, seen_classes, classifier_type)
                 self.model.train()            
             else:
                 # print("Getting detections from old model.")
                 predictions = self.model_old(data_final)
                 ## merging detections from seen classes with groundtruth of new classes
-                data = self.merge_gt_and_detections(data, predictions, seen_classes)
+                data = self.merge_gt_and_detections(data, predictions, seen_classes, classifier_type)
         
 
         ## let's begin boys
@@ -436,7 +442,7 @@ class SimpleTrainer_CL(TrainerBase):
         wrap the optimizer with your custom `step()` method.
         """
         
-    def merge_gt_and_detections(self, gt, predictions, seen_classes):
+    def merge_gt_and_detections(self, gt, predictions, seen_classes, classifier_type):
         """
         For continual learning setup, it detects all previously seen objects
         and merges them with ground truth.
@@ -466,11 +472,31 @@ class SimpleTrainer_CL(TrainerBase):
                 ## only append if detected instance is from a seen class and it's a confident detection
                 if detectedinstance[[j]].get('pred_classes').item() in seen_classes and detectedinstance[[j]].get('scores').item() > 0.9:
                 
-                    ## let's create an instance object for this detection
-                    ret = Instances(detectedinstance[[j]].image_size)
-                    ret.set('gt_boxes', Boxes(detectedinstance[[j]].get('pred_boxes').tensor.clone().detach())) ## because boxes are expected in the ground truth and not just a tensor
-                    ret.set('gt_classes', detectedinstance[[j]].get('pred_classes').clone().detach())
-                    instance_list.append(ret)
+
+                    """
+                    We attach the detections as they are 
+                    if the model being trained is
+                    deterministic.
+
+                    """
+                    if classifier_type is 'deterministic':
+                        ## let's create an instance object for this detection
+                        ret = Instances(detectedinstance[[j]].image_size)
+                        ret.set('gt_boxes', Boxes(detectedinstance[[j]].get('pred_boxes').tensor.clone().detach())) ## because boxes are expected in the ground truth and not just a tensor
+                        ret.set('gt_classes', detectedinstance[[j]].get('pred_classes').clone().detach())
+                        instance_list.append(ret)
+
+
+                    """
+                    If the model is probabilistic,
+                    then for each detection, we sample a few boxes,
+                    assign is the label of the same detection, 
+                    and train the model.
+
+                    """
+                    if classifier_type is 'probabilistic':
+                        ## call function that would sample stuff
+                        some_stuff = 10
 
             ## for this image size
             image_size = detectedinstance.image_size

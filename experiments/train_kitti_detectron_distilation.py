@@ -16,8 +16,12 @@ from detectron2.data import MetadataCatalog
 from contextlib import redirect_stdout
 import argparse
 
+ap = argparse.ArgumentParser()
+ap.add_argument("-name", "--experiment_comment", required = True, help="Comments for the experiment")
 
+args = vars(ap.parse_args())
 
+dir_name = args['experiment_comment']
 
 class_list_all = ['Car', 'Van', 'Truck', 'Tram']
 # class_list = ['Pedestrian', 'Cyclist', 'Person_sitting', 'Tram']
@@ -78,7 +82,9 @@ def get_kitti_dicts(root_dir, data_label, class_dict):
     return dataset_dicts
 
 
-output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/distillation_loss_more_training_iterations/"
+# output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/distillation_loss_more_training_iterations/"
+output_main_dir = os.path.join("/network/tmp1/bhattdha/detectron2CL_kitti/", dir_name)
+os.makedirs(output_main_dir, exist_ok=True)
 
 for ind, class_name in enumerate(class_list_all):
     if os.path.isfile(os.path.join(output_main_dir, class_name, 'model_final.pth')):
@@ -127,7 +133,7 @@ for ind, class_name in enumerate(class_list_all):
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(class_list_all)  #  (kitti)
     cfg.OUTPUT_DIR = os.path.join(output_main_dir, class_name)
     cfg.SOLVER.CHECKPOINT_PERIOD = 5000
-    cfg.CUSTOM_OPTIONS.DETECTOR_TYPE = "deterministic"
+    # cfg.CUSTOM_OPTIONS.DETECTOR_TYPE = "deterministic"
 
     if cfg.CUSTOM_OPTIONS.DETECTOR_TYPE is 'deterministic':
         ## has to be smooth l1 loss if detector is deterministc

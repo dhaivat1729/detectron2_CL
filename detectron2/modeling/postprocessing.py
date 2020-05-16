@@ -27,6 +27,10 @@ def detector_postprocess(results, output_height, output_width, mask_threshold=0.
     scale_x, scale_y = (output_width / results.image_size[1], output_height / results.image_size[0])
     results = Instances((output_height, output_width), **results.get_fields())
 
+    if results.has("pred_sigma"):
+        from detectron2.structures import Boxes
+        Boxes(results.pred_sigma).scale(scale_x, scale_y)
+
     if results.has("pred_boxes"):
         output_boxes = results.pred_boxes
     elif results.has("proposal_boxes"):
