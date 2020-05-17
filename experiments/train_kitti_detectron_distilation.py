@@ -113,7 +113,7 @@ for ind, class_name in enumerate(class_list_all):
     if ind > 0:
         last_class = class_list_all[ind-1]
         cfg.CUSTOM_OPTIONS.SEEN_CLASSES = list(np.arange(ind))
-        cfg_prev_classes = torch.load(os.path.join(output_main_dir + last_class + '/' + last_class + '_cfg.final'))['cfg']
+        cfg_prev_classes = torch.load(os.path.join(output_main_dir, last_class + '/' + last_class + '_cfg.final'))['cfg']
         model_path = os.path.join(output_main_dir, last_class, 'model_final_next.pth')
         if os.path.isfile(model_path):
             print("previous class model weights exist broo!")
@@ -128,7 +128,7 @@ for ind, class_name in enumerate(class_list_all):
         cfg_prev_classes = None
     cfg.SOLVER.IMS_PER_BATCH = 15
     cfg.SOLVER.BASE_LR = 7.5e-4  
-    cfg.SOLVER.MAX_ITER =  10001
+    cfg.SOLVER.MAX_ITER =  15001
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 256   # faster, and good enough for this toy dataset
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(class_list_all)  #  (kitti)
     cfg.OUTPUT_DIR = os.path.join(output_main_dir, class_name)
