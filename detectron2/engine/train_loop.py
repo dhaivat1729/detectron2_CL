@@ -346,7 +346,6 @@ class SimpleTrainer_CL(TrainerBase):
             i. If it's a deterministic object detector, append them as groundtruth to already seen classes
             ii. If it's a probabilistic object detector, sample from detections and append a few of them.
     
-
         4. Train the model on currently seen data + old seen classes detected!
 
         Potential new thing: Add noise to the detected objects.  
@@ -496,6 +495,8 @@ class SimpleTrainer_CL(TrainerBase):
                     """
                     if classifier_type is 'probabilistic':
                         ## call function that would sample stuff
+                        
+                        instance_list = self.sample_boxes(instance_list, detectedinstance[[j]])
                         some_stuff = 10
 
             ## for this image size
@@ -524,6 +525,31 @@ class SimpleTrainer_CL(TrainerBase):
             gt[i]['instances'] = ret          
             
         return gt
+
+
+    def sample_boxes(self, instance_list, detectedinstance):
+
+        """
+            This is used to sample boxes when we have probabilistic object detector
+            This would give us more diverse set of boxes. 
+
+        """
+
+        ## TODO: make this a config variable
+        num_samples = 5
+
+        for i in range(num_samples):
+            sampled_box = torch.distributions.multivariate_normal.MultivariateNormal(detectedinstance.pred_boxes.tensor[0], torch.diag(detectedinstance.pred_sigma[0])).sample()
+            sampled_box = Boxes(sampled_box[None])
+
+            ## clip the box to get it within the image
+            sampled_box.clip(detectedinstance.image_size)
+            ret = Instances(detectedinstance.image_size)
+            ret.set('gt_boxes', sampled_box) ## because boxes are expected in the ground truth and not just a tensor
+            ret.set('gt_classes', detectedinstance.get('pred_classes').clone().detach())
+            instance_list.append(ret)
+
+        return instance_list
 
     def _detect_anomaly(self, losses, loss_dict):
         if not torch.isfinite(losses).all():
