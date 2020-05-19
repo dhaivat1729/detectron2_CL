@@ -127,8 +127,8 @@ for ind, class_name in enumerate(class_list_all):
         cfg.MODEL.WEIGHTS = "https://dl.fbaipublicfiles.com/detectron2/COCO-Detection/faster_rcnn_R_101_FPN_3x/137851257/model_final_f6e8b1.pkl"  # initialize fron deterministic model
         cfg_prev_classes = None
     cfg.SOLVER.IMS_PER_BATCH = 15
-    cfg.SOLVER.BASE_LR = 1e-4  
-    cfg.SOLVER.MAX_ITER =  10001
+    cfg.SOLVER.BASE_LR = 5e-4  
+    cfg.SOLVER.MAX_ITER =  15001
     cfg.MODEL.ROI_HEADS.BATCH_SIZE_PER_IMAGE = 256   # faster, and good enough for this toy dataset
     cfg.MODEL.ROI_HEADS.NUM_CLASSES = len(class_list_all)  #  (kitti)
     cfg.OUTPUT_DIR = os.path.join(output_main_dir, class_name)

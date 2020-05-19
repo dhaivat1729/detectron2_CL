@@ -135,7 +135,7 @@ class TrainerBase:
                 for self.iter in range(start_iter, max_iter):
                     print(self.iter)
                     self.before_step()
-                    self.run_step(cfg)
+                    self.run_step(cfg, old_detection = True)
                     self.after_step()
             finally:
                 self.after_train()
@@ -200,11 +200,12 @@ class SimpleTrainer(TrainerBase):
         self._data_loader_iter = iter(data_loader)
         self.optimizer = optimizer
 
-    def run_step(self, cfg):
+    def run_step(self, cfg, old_detection = None):
         """
         Implement the standard training logic described above.
         """
         assert cfg is None
+        del old_detection
         assert self.model.training, "[SimpleTrainer] model was changed to eval mode!"
         start = time.perf_counter()
         """
@@ -335,7 +336,7 @@ class SimpleTrainer_CL(TrainerBase):
         self._data_loader_iter = iter(data_loader)
         self.optimizer = optimizer
 
-    def run_step(self, cfg):
+    def run_step(self, cfg, old_detection = False):
         """
         Implement continual learning object detection logic
 
@@ -366,7 +367,7 @@ class SimpleTrainer_CL(TrainerBase):
             data_point['instances'].set('gt_weight', torch.ones(data_point['instances'].gt_classes.size()))
             data[i] = data_point
 
-        if seen_classes:
+        if seen_classes and old_detection:
             
             ## 2. Do the forward pass to detect already seen object classes ##
             ## preparing the data for forward pass
@@ -496,7 +497,7 @@ class SimpleTrainer_CL(TrainerBase):
             for j in range(len(detectedinstance)):
 
                 ## only append if detected instance is from a seen class and it's a confident detection
-                if detectedinstance[[j]].get('pred_classes').item() in seen_classes and detectedinstance[[j]].get('scores').item() > 0.9:
+                if detectedinstance[[j]].get('pred_classes').item() in seen_classes and detectedinstance[[j]].get('scores').item() > 0.90:
                 
 
                     """
