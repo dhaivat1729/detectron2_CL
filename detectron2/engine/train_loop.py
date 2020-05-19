@@ -12,6 +12,7 @@ from detectron2.structures import Boxes, Instances
 from detectron2.layers import cat
 from detectron2.utils.events import EventStorage
 import copy
+import numpy as np
 
 __all__ = ["HookBase", "TrainerBase", "SimpleTrainer", "SimpleTrainer_CL"]
 
@@ -361,6 +362,10 @@ class SimpleTrainer_CL(TrainerBase):
         ## 1. get the data first ##
         data = next(self._data_loader_iter)
 
+        for i, data_point in enumerate(data):
+            data_point['instances'].set('gt_weight', torch.ones(data_point['instances'].gt_classes.size()))
+            data[i] = data_point
+
         if seen_classes:
             
             ## 2. Do the forward pass to detect already seen object classes ##
@@ -389,7 +394,6 @@ class SimpleTrainer_CL(TrainerBase):
                 ## merging detections from seen classes with groundtruth of new classes
                 data = self.merge_gt_and_detections(data, predictions, seen_classes, classifier_type)
         
-
         ## let's begin boys
         
         assert self.model.training, "[SimpleTrainer] model was changed to eval mode!"
@@ -448,6 +452,7 @@ class SimpleTrainer_CL(TrainerBase):
         TO DO:  
         """
 
+        ## ensure same number of images
         assert len(gt) == len(predictions)
 
         ## getting groundtruth instances
@@ -455,6 +460,28 @@ class SimpleTrainer_CL(TrainerBase):
 
         ## detected instances
         detected_instances = [p['instances'].to('cpu') for p in predictions]
+
+
+        ## let's calculate variance and and find inverse variance, normalize between 0.1 to 1.0
+        all_inv_variance = []
+        min_val = 1e10
+        max_val = -1e10
+        for i, detectedinstance in enumerate(detected_instances):
+            variance_val = []
+            for j in range(len(detectedinstance)):
+                if detectedinstance[[j]].get('pred_classes').item() in seen_classes and detectedinstance[[j]].get('scores').item() > 0.9:
+                    weight = 1. / torch.prod(detectedinstance[[j]].pred_sigma**2).detach().item()
+                    variance_val.append(weight)
+                    if weight < min_val:
+                        min_val = weight
+                    if weight > max_val:
+                        max_val = weight
+
+            all_inv_variance.append(variance_val)
+
+        #     variance_val = np.array(variance_val)
+        #     variance_val = (variance_val - np.min(variance_val)) / np.ptp(variance_val) 
+
 
         ## let's go through every image once by one
         for i, detectedinstance in enumerate(detected_instances):
@@ -496,8 +523,36 @@ class SimpleTrainer_CL(TrainerBase):
                     if classifier_type is 'probabilistic':
                         ## call function that would sample stuff
                         
-                        instance_list = self.sample_boxes(instance_list, detectedinstance[[j]])
-                        some_stuff = 10
+                        """
+                            use this if we want to sample boxes from the distribution coming
+                        """
+                        # instance_list = self.sample_boxes(instance_list, detectedinstance[[j]])
+
+
+                        """
+                            use this if you want to weight the sample confidence with
+                            inverse covariance
+                        """
+                        # ret = Instances(detectedinstance[[j]].image_size)
+                        # ret.set('gt_boxes', Boxes(detectedinstance[[j]].get('pred_boxes').tensor.clone().detach())) ## because boxes are expected in the ground truth and not just a tensor
+                        # ret.set('gt_classes', detectedinstance[[j]].get('pred_classes').clone().detach())
+                        # ret.set('gt_weight', torch.ones(1) * (0.5 * (all_inv_variance[i][j] - min_val) / (max_val - min_val) + 0.5 ))
+                        # instance_list.append(ret)                        
+
+
+                        """
+                            use this if you want to find smaller and larger
+                            bounding box and take the ratio of the two as 
+                            weight
+                        """
+
+                        gt_weight = self.find_small_large_boxes_ratio(detectedinstance[[j]])
+                        ret = Instances(detectedinstance[[j]].image_size)
+                        ret.set('gt_boxes', Boxes(detectedinstance[[j]].get('pred_boxes').tensor.clone().detach())) ## because boxes are expected in the ground truth and not just a tensor
+                        ret.set('gt_classes', detectedinstance[[j]].get('pred_classes').clone().detach())
+                        ret.set('gt_weight', torch.ones(1) * (gt_weight))
+                        instance_list.append(ret)                        
+
 
             ## for this image size
             image_size = detectedinstance.image_size
@@ -526,6 +581,43 @@ class SimpleTrainer_CL(TrainerBase):
             
         return gt
 
+    def find_small_large_boxes_ratio(seld, detectedinstance):
+
+        """
+            Role of the function:
+            It gets the bounding box detection and 
+            corresponding uncertainty estimates.
+            We calcualte A_small = area(Box - 2sigma) 
+            and A_large = area(Box + 2Sigma).
+            The ratio is A_ratio = A_small/A_large.
+            
+            Return:
+                gt_weight
+        """
+
+
+        box = detectedinstance.get('pred_boxes').tensor.clone().detach()
+        two_sigma = detectedinstance.get('pred_sigma').clone().detach()
+
+        ## calculating areas of the boxes
+        box_large = torch.tensor([box[0][0] - two_sigma[0][0], 
+            box[0][1] - two_sigma[0][1], box[0][2] + two_sigma[0][2], 
+            box[0][3] + two_sigma[0][3]])
+
+        box_small = torch.tensor([box[0][0] + two_sigma[0][0], 
+            box[0][1] + two_sigma[0][1], box[0][2] - two_sigma[0][2], 
+            box[0][3] - two_sigma[0][3]])
+        
+        ### let's calculate the area ratio
+        area_ratio = Boxes(box_small[None,:]).area()[0] / Boxes(box_large[None,:]).area()[0]
+
+        ### clamp it between 0.5 and 1.0
+        area_ratio = torch.clamp(area_ratio, min=0.5, max=1.0).item()
+
+        ### map clamped ratio between 0 to 1. 
+        area_ratio = 2 * (area_ratio - 0.5)
+
+        return area_ratio        
 
     def sample_boxes(self, instance_list, detectedinstance):
 
@@ -547,8 +639,8 @@ class SimpleTrainer_CL(TrainerBase):
             ret = Instances(detectedinstance.image_size)
             ret.set('gt_boxes', sampled_box) ## because boxes are expected in the ground truth and not just a tensor
             ret.set('gt_classes', detectedinstance.get('pred_classes').clone().detach())
+            ret.set('gt_variance', detectedinstance.get('pred_classes').clone().detach())
             instance_list.append(ret)
-
         return instance_list
 
     def _detect_anomaly(self, losses, loss_dict):
