@@ -18,6 +18,8 @@ import argparse
 from detectron2.evaluation import COCOEvaluator, inference_on_dataset
 from detectron2.data import build_detection_test_loader
 
+
+
 class_list_all = ['Car', 'Van', 'Truck', 'Tram']
 # class_list = ['Pedestrian', 'Cyclist', 'Person_sitting', 'Tram']
 
@@ -80,10 +82,14 @@ def get_kitti_dicts(root_dir, data_label, class_dict):
 # output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/fine_tuning/"
 # output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/distillation_loss/"
 # output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/rehearsal/"
-output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/upperbound_data/"
+# output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/upperbound_data/"
+# output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/loss_attenuation_sampling_distillation/"
+# output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/distillation_loss_more_training_iterations/"
+# output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/loss_attenuation_distillation_weighted/"
+output_main_dir = "/network/tmp1/bhattdha/detectron2CL_kitti/loss_attenuation_box_ratio_distillation/"
 
 class_dict = {}
-for ind, class_name in enumerate(class_list_all):
+for ind, class_name in enumerate(class_list_all[:2]):
     class_dict[class_name] = ind
 
     print(ind, class_name)
