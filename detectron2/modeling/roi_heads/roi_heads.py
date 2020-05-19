@@ -232,7 +232,6 @@ class ROIHeads(torch.nn.Module):
             proposals = add_ground_truth_to_proposals(gt_boxes, proposals)
 
         proposals_with_gt = []
-
         num_fg_samples = []
         num_bg_samples = []
         for proposals_per_image, targets_per_image in zip(proposals, targets):
@@ -270,14 +269,13 @@ class ROIHeads(torch.nn.Module):
             num_bg_samples.append((gt_classes == self.num_classes).sum().item())
             num_fg_samples.append(gt_classes.numel() - num_bg_samples[-1])
             proposals_with_gt.append(proposals_per_image)
-
-        
+            
         # Log the number of fg/bg samples that are selected for training ROI heads
         storage = get_event_storage()
         storage.put_scalar("roi_head/num_fg_samples", np.mean(num_fg_samples))
         storage.put_scalar("roi_head/num_bg_samples", np.mean(num_bg_samples))
 
-        return proposals_with_gt
+        return  proposals_with_gt
 
     def forward(self, images, features, proposals, targets=None):
         """
